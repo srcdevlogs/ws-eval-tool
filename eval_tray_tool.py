@@ -6,20 +6,20 @@ from PIL import Image, ImageDraw
 import pystray
 import ctypes
 
-# === create colored icon ===
+# === Create tray icon with specified color ===
 def create_icon(color):
     image = Image.new('RGB', (64, 64), (255, 255, 255))
     draw = ImageDraw.Draw(image)
     draw.ellipse((16, 16, 48, 48), fill=color)
     return image
 
-# === popup for equal or less then 20 days ===
+# === Show popup warning if evaluation is about to expire ===
 def show_warning_popup(days):
-    title = "⚠️ Windows-Evaluation ends soon"
-    message = f"Your Windows Server-Evaluation ends in {days} days!\nPlease activate your system in time."
-    ctypes.windll.user32.MessageBoxW(0, message, title, 0x40 | 0x1)  # OK, Info
+    title = "⚠️ Windows Evaluation Period Expiring Soon"
+    message = f"Your Windows Server evaluation will expire in {days} days.\nPlease activate the system in time."
+    ctypes.windll.user32.MessageBoxW(0, message, title, 0x40 | 0x1)  # OK, Information icon
 
-# === get remaining duration of evaluation (bilingual) ===
+# === Retrieve remaining evaluation days from slmgr.vbs output ===
 def get_evaluation_days_remaining():
     try:
         result = subprocess.run(
@@ -30,10 +30,10 @@ def get_evaluation_days_remaining():
         )
         output = result.stdout
 
-        # German: Ablauf ... (180 Tag(e))
+        # Match German output: (180 Tag(e))
         match = re.search(r"Ablauf.*?\((\d+)\s*Tag", output, re.IGNORECASE)
 
-        # English: Remaining evaluation period: 123 days
+        # Match English output: Remaining evaluation period: 180 days
         if not match:
             match = re.search(r"Remaining.*?(\d+)\s+days", output, re.IGNORECASE)
 
@@ -41,17 +41,18 @@ def get_evaluation_days_remaining():
             return int(match.group(1))
 
     except Exception as e:
-        print("Failed to get license information:", e)
+        print("Error retrieving license info:", e)
 
     return None
 
-# === update Tooltip & Icon regularly ===
+# === Background updater for tooltip and icon color ===
 def update_tooltip_and_icon(icon):
     while True:
         days = get_evaluation_days_remaining()
         if days is not None:
-            icon.title = f"Remaining Eval-Days: {days}"
+            icon.title = f"Remaining Eval Days: {days}"
 
+            # Change color depending on how much time is left
             if days > 60:
                 icon.icon = create_icon('gray')
             elif days > 30:
@@ -59,30 +60,32 @@ def update_tooltip_and_icon(icon):
             else:
                 icon.icon = create_icon('red')
         else:
-            icon.title = "Didn`t found Evaluation"
+            icon.title = "No evaluation period detected"
             icon.icon = create_icon('gray')
 
-        time.sleep(3600)  # check every hour
+        time.sleep(3600)  # Update every hour
 
-# === set up Tray-Icon ===
+# === Initialize and start the tray icon ===
 def setup_tray_icon():
     icon = pystray.Icon("eval_days")
     icon.icon = create_icon('gray')
-    icon.title = "Eval-Check wird geladen…"
+    icon.title = "Loading evaluation info…"
 
+    # Right-click menu with Exit option
     icon.menu = pystray.Menu(
         pystray.MenuItem("Exit", lambda icon, item: icon.stop())
     )
 
-    # check at start up
+    # Initial check and warning popup if needed
     days = get_evaluation_days_remaining()
     if days is not None and days <= 20:
         show_warning_popup(days)
 
+    # Start background update thread
     threading.Thread(target=update_tooltip_and_icon, args=(icon,), daemon=True).start()
 
     icon.run()
 
-# === start point ===
+# === Main entry point ===
 if __name__ == "__main__":
     setup_tray_icon()
